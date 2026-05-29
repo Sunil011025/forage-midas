@@ -5,6 +5,8 @@ import com.jpmc.midascore.entity.TransactionRecord;
 import com.jpmc.midascore.entity.UserRecord;
 import com.jpmc.midascore.repository.TransactionRecordRepository;
 import com.jpmc.midascore.repository.UserRepository;
+import com.jpmc.midascore.foundation.Incentive;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 
@@ -13,6 +15,7 @@ public class KafkaTransactionListener {
 
     private final UserRepository userRepository;
     private final TransactionRecordRepository transactionRecordRepository;
+    private final RestTemplate restTemplate;
 
     public KafkaTransactionListener(
             UserRepository userRepository,
@@ -20,6 +23,7 @@ public class KafkaTransactionListener {
     ) {
         this.userRepository = userRepository;
         this.transactionRecordRepository = transactionRecordRepository;
+        this.restTemplate = new RestTemplate();
     }
 
     @KafkaListener(
@@ -33,7 +37,18 @@ public class KafkaTransactionListener {
 
         UserRecord recipient =
                 userRepository.findById(transaction.getRecipientId());
+        Incentive incentive =
+                restTemplate.postForObject(
+                        "http://localhost:8080/incentive",
+                        transaction,
+                        Incentive.class
+                );
 
+        float incentiveAmount = 0;
+
+        if (incentive != null) {
+            incentiveAmount = incentive.getAmount();
+        }
         if (sender == null || recipient == null) {
             return;
         }
@@ -47,7 +62,9 @@ public class KafkaTransactionListener {
         );
 
         recipient.setBalance(
-                recipient.getBalance() + transaction.getAmount()
+                recipient.getBalance()
+                        + transaction.getAmount()
+                        + incentiveAmount
         );
 
         userRepository.save(sender);
@@ -57,7 +74,8 @@ public class KafkaTransactionListener {
                 new TransactionRecord(
                         sender,
                         recipient,
-                        transaction.getAmount()
+                        transaction.getAmount(),
+                        incentiveAmount
                 );
 
         transactionRecordRepository.save(record);
